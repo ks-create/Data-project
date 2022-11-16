@@ -1,0 +1,271 @@
+---
+title: "36-402 DA Exam 1"
+author: "Kan Sun (kansun)"
+date: "March 25, 2022"
+output: pdf_document
+linestretch: 1.241
+fontsize: 12pt
+fontfamily: mathpazo
+---
+
+
+```{r setup, include = FALSE}
+# By default, do not include R source code in the PDF. We do not want to see
+# code, only your text and figures.
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Introduction
+
+Our client is interested in knowing whether their company should move its headquarters to a large city. Since their company is a technology company with thousands of highly skilled employees, the city would benefit from having the company if the urban hierarchy hypothesis is true, and, in return, the company would also benefit from having a tax break. **(1)** Given the data about the economies of 133 cities in the United States, we are interested in whether the urban hierarchy hypothesis holds. In other words, we want to know whether economic variables are sufficient to explain the per-capita gross metropolitan product(pcgmp) of a city, or we also need to account for the population of a city. Specifically, we aim to answer the following three questions. First, we want to evaluate how well the power-law-scaling model fits the data and quantify the estimation bias of this model when predicting cities of the size of Pittsburgh. Second, we want to fit a second model to predict pcgmp from the economic variables and compare its prediction error to the power-law-scaling model. Third, using the residuals from the second model, we want to know if population sizes should be incorporated to explain the residuals. 
+
+**(2)** Our analysis leads us to the conclusion that the urban hierarchy hypothesis does not hold. The economic variables are not sufficient to explain the pcgmp of a city, and we also need to account for the population when predicting the pcgmp of a city. Additionally, we conclude that the log-transformed power-law-scaling model is essentially biased and not suitable for predicting the pcgmp of a city. 
+
+
+# Exploratory Data Analysis
+
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(gridExtra))
+suppressMessages(library(np))
+gmp_df = read.csv("gmp.csv")
+```
+
+Given the research questions and objectives, we define 6 key variables. Specifically, our response variable is pcgmp, which is the per-capita gross metropolitan product, in dollars. Our key explanatory variable is pop, which is the population in each metropolitan statistical area (MSA). The other four explanatory variables are finance, prof.tech, ict, and management, which correspond to the share of the MSA economy that is in the financial industry, professional and technical services, information/communication/technology, or corporate management, respectively. 
+
+We start by exploring each variable individually. **(1)** Pop is our key explanatory variable. Based on the histogram and the boxplot of pop (figure not shown), we observe that pop is heavily skewed right and with more than 10 outliers. This suggests that we should apply log transformation to pop. Then we proceed to construct a histogram of log(pop), which is shown in Figure 1 below. From the histogram of log(pop), we observe that the distribution of log(pop) is moderately skewed right, and with no obvious outliers, which is better compared to the distribution of pop. **(2)** Pcgmp is our response variable. Similarly, based on the histogram and the boxplot of pcgmp (figure not shown), we observe that pcgmp is skewed right and with 3 outliers. This suggests that we should apply log transformation to pcgmp. Then we proceed to construct a histogram of log(pcgmp), which is shown in Figure 1 below. From the histogram of log(pcgmp), we observe that the distribution of log(pcgmp) is approximately normal and with no obvious outliers, which is also better compared to the distribution of pcgmp. 
+
+We then continue to explore the distribution of the other four explanatory variables: finance, prof.tech, ict, and management. Based on the histogram and the box plot of each variable (figure not shown), we observe that: the distribution of finance is slightly skewed right, with only about 3 outliers; the distributions of prof.tech and management are both moderately skewed right, with about 5 outliers; the distribution of ict is heavily skewed right, with more than 10 outliers. 
+
+```{r, fig.width=4, fig.height=3, fig.cap="Distribution of log(pop) and log(pcgmp)"}
+key_dist = ggplot(data = gmp_df, aes(x=log(pop))) +
+   geom_histogram(fill="black", color="white", bins=15) +
+   labs(x="log(population)")
+response_dist = ggplot(data = gmp_df, aes(x=log(pcgmp))) +
+   geom_histogram(fill="black", color="white", bins=15) +
+   labs(x="log(pcgmp)")
+grid.arrange(key_dist, response_dist, ncol=2)
+```
+
+   
+Next, to explore the possible relationship among our variables, we construct a scatterplot matrix of all 6 key variables as shown in Figure 2 below. **(3)** We first compare the response variable pcgmp against the other 5 explanatory variables. Based on the scatterplot matrix, we observe that pcgmp appears to have a positive relationship with all other five explanatory variables. While the positive correlation between pcgmp and prof.tech is relatively strong, the positive relationship between pcgmp and the other 4 explanatory variables do not appear to be significant. Moreover, we continue to explore the relationship among the 5 explanatory variables. Specifically, we observe that there is a relatively strong positive correlation between prof.tech and pop, and a relatively strong positive correlation between prof.tech and ict; yet the relationship among the remaining pairs all seems to be insignificant. Based on the above findings, we observe that prof.tech has relatively strong correlations with 2 other explanatory variables. This may suggest that we can exclude prof.tech as a predictor variable in our model, and the amount of variance in the response variable explained by prof.tech can potentially be explained by other explanatory variables. 
+
+
+```{r, fig.width=6, fig.height=4, fig.cap="Scatterplot matrix of predictor and response variables"}
+pairs(gmp_df[,-c(1,2)], pch=16, upper.panel = NULL)
+```   
+
+
+**(4)** It is interesting that population and the four economic variables (finance,
+prof.tech, ict, and management) all positively contribute to pcgmp. On the one hand, population positively contributing to pcgmp can be explained by the power law scaling hypothesis. On the other hand, it is also reasonable that population can negatively contribute to pcgmp because pcgmp is the total gross metropolitan product divide by population. With this in mind, it is possible that, once we control for the economic variables, we will find that population indeed negatively contributes to the pcgmp. 
+
+
+# Modeling & Diagnostics
+   
+First, in order to evaluate how well the power-law-scaling model fits the data, we fit the power-law-scaling model to relate pcgmp to population size. Given that some economists believe that there exist an exponential relationship between pcgmp and population as following: 
+$$\text{pcgmp}=b*\text{population}^a$$
+We decide to take the logarithms of the above equation, and we have:
+$$log(\text{pcgmp})\sim c+a*log(\text{population}) \hspace{1cm} \textbf{(Model 1)}$$
+Now we have a linear relationship between log(pcgmp) and log(pop). **(1)** Specifically, we will fit the above linear model to the data, and we will refer to this model as Model 1. Based on the log(pcgmp) versus log(pop) plot in Figure 3, we can observe that the relationship between the two transformed variables is moderately linear, and this linear trend is approximately captured by our linear model. **(2)** Based on Model 1’s fitted value versus their corresponding residuals plot in Figure 3, we can observe that the residuals approximately have mean zero and do not display any obvious trend of curvature. Yet, the residuals appear to have a larger variance when fitted values are small, and have a smaller variance when the fitted values are large. This indicates a possible violation of the constant variance assumption. Consequently, standardized scores do not have the assumed
+distribution, and therefore the test results and confidence intervals for the coefficients in Model 1 are unreliable. Additionally, this implies that we should not use fully parametric bootstrap or bootstrapping by resampling residuals when approximating the uncertainty of the estimators in Model 1, because both methods require residuals to be independent of the predictors. 
+
+```{r, fig.width=7, fig.height=4, fig.cap="Diagnostic plots analyzing Model 1 (relationship between log(pcgmp) and log(pop), and fitted value versus their corresponding residuals)"}
+model_1 = lm(log(pcgmp)~log(pop), data=gmp_df) 
+
+par(mfrow=c(1,2))
+plot(log(gmp_df$pop), log(gmp_df$pcgmp), pch = 16, 
+     xlab="log(POP)", ylab="log(PCGMP)")
+abline(model_1)
+plot(fitted(model_1), residuals(model_1), pch = 16, 
+     xlab="Linear Model 1 Fitted Values", ylab="Residuals")
+abline(0, 0)
+```
+
+
+**(3)** We then performed 10-fold cross-validation to estimate the prediction errors of Model 1 to judge how well it can predict pcgmp. Specifically, we found out that the estimated mean squared error (prediction error) of Model 1 has a mean of 75,269,069 and a standard deviation of 48,046,478. 
+
+```{r}
+set.seed(100)
+
+err_vec_1 = rep(NA, 10)
+samp = sample(rep(1:10, length.out = nrow(gmp_df)), replace = FALSE)
+
+for (k in 1:10) {
+   testd = gmp_df[samp == k, ]
+   traind = gmp_df[!(samp == k), ]
+   
+   model_1_tmp = lm(log(pcgmp)~log(pop), data=traind)
+   
+   pre_log_Y = predict(model_1_tmp, newdata=testd)
+   pre_Y = exp(pre_log_Y)
+   
+   err_vec_1[k] = mean((pre_Y - testd$pcgmp)^2)
+}
+
+cv_err_1_mean = mean(err_vec_1)
+cv_err_2_sd = sd(err_vec_1)
+```
+
+
+Since our client is also interested in cities like Pittsburgh, which has a metropolitan area population of 2,361,000, we aim to quantify the bias in Model 1's estimates of pcgmp for cities of the size of Pittsburgh. **(4)** Specifically, we want to quantify this bias by bootstrapping. Recall that when diagnosing Model 1, we conclude that the assumption of residuals having constant variance is violated, which implies that the residuals seem to depend on the predictors. As a result, we decide to approach by (nonparametric) bootstrapping by resampling cases. First, we want to resample data pairs (pop, pcgmp) from the empirical distribution of the original dataset, and we want to make sure that the resampled data has the same size as the original dataset to avoid uncertainty due to sample size. Second, we want to re-fit Model 1 to the resampled data and use the re-fitted model to predict pcgmp for cities with a population of 2,361,000. Third, to have a better estimation of the predicted value of pcgmp for cities with a population of 2,361,000, we want to repeat the above two steps 1,000 times. Lastly, we take the mean of the 1,000 predictions and minus the true pcgmp of Pittsburgh from it, and this would give us a fairly good estimate of the bias in Model 1's predictions of pcgmp, for a city of the size of Pittsburgh. 
+   
+Next, we want to fit a nonparametric model to predict log(pcgmp) from the other economic variables (finance, prof.tech, ict, and management). This allows us to check the validity of the urban hierarchy model indirectly since the urban hierarchy model assumes that pcgmp can be explained by economic factors. **(5)** Specifically, we will fit a kernel regression of log(pcgmp) on finance, prof.tech, ict, and management. Because we want a different bandwidth for each predictor, we calculated it based on the sample standard
+deviations of each predictor and the sample size. We will refer to this model as Model 2. Based on the diagnostic plots in Figure 4, we can observe that the residuals against the four predictors plots and the fitted value appear to have a mean of zero. However, in the residuals against the four predictors plots, we can observe a common trend that: the variance of the residuals decreases as the value of the predictors' increases. Also, in the residuals versus fitted value plot, we can observe that the variance of the residuals is the largest when the fitted value is around 10.25 and decreases towards both ends. The above observations all indicate that the assumption of residuals having constant variance is violated. 
+
+```{r, fig.width=7, fig.height=6, fig.cap="Diagnostic plots analyzing Model 2 (finance, prof.tech, ict, and management versus their corresponding residuals, and fitted value versus their corresponding residuals)"}
+bws_2 = apply(gmp_df[ ,c(5,6,7,8)], 2, sd) / (nrow(gmp_df))^(0.2) 
+model_2 = npreg(log(pcgmp)~finance+prof.tech+ict+management, data=gmp_df, 
+                bws=bws_2, residuals=TRUE)
+
+par(mfrow=c(3,2))
+plot(gmp_df$finance, residuals(model_2), pch = 19, ylab="Residuals", xlab="Finance")
+abline(h=0)
+plot(gmp_df$prof.tech, residuals(model_2), pch = 19, ylab="Residuals", xlab="Prof.tech")
+abline(h=0)
+plot(gmp_df$ict, residuals(model_2), pch = 19, ylab="Residuals", xlab="Ict")
+abline(h=0)
+plot(gmp_df$management, residuals(model_2), pch = 19, ylab="Residuals", xlab="Management")
+abline(h=0)
+plot(fitted(model_2), residuals(model_2), pch = 19, 
+     ylab="Residuals", xlab="Model 2 Fitted Values")
+abline(h=0)
+```
+
+   
+Now we are insterested in checking if we still need to incorporate population as one of our predictor variables after accounting for the economic variables. **(6)** We do so by fitting a linear regression of the residuals in Model 2 versus log(pop) as specified below:
+$$\text{Residuals(Model 2)}\sim\beta_0+\beta_1*log(\text{population}) \hspace{1cm} \textbf{(Model 3)}$$
+We will refer to this model as Model 3. Based on the diagnostic plot in Figure 5, we can observe that the residuals against the fitted value appear to have a mean of zero. However, we observe that the variance of the residuals tends to increase as the fitted values increase. This indicates that the assumption of residuals having constant variance is violated. 
+
+```{r, fig.width=4, fig.height=3, fig.cap="Diagnostic plots analyzing Model 3 (fitted value versus their corresponding residuals) "}
+model_3 = lm(residuals(model_2)~log(pop), data=gmp_df)
+plot(fitted(model_3), residuals(model_3), pch = 19)
+abline(h=0)
+```
+
+
+
+# Results
+
+```{r}
+set.seed(100)
+
+X_pitt = (gmp_df[gmp_df$MSA=="Pittsburgh, PA", ])$pop
+Y_pitt = (gmp_df[gmp_df$MSA=="Pittsburgh, PA", ])$pcgmp
+n = nrow(gmp_df)
+
+boot_est = rep(NA, 1000)
+
+for (B in 1:1000) {
+   boot_idx = sample(n, size=n, replace=TRUE)
+   boot_df = gmp_df[boot_idx, ]
+   
+   b_model_1_tmp = lm(log(pcgmp)~log(pop), data=boot_df)
+   Y_pitt_pre_log = predict(b_model_1_tmp, newdata=data.frame(pop=X_pitt))
+   Y_pitt_pre = exp(Y_pitt_pre_log)
+   boot_est[B] = Y_pitt_pre
+}
+
+boot_bias_pitt = mean(boot_est)-Y_pitt
+```
+
+To estimate how well Model 1 can predict pcgmp in general, we performed 10-fold cross-validation to estimate the prediction errors of Model 1. To estimate how well Model 1 can predict pcgmp for cities of the size of Pittsburgh, we performed a (nonparametric) bootstrapping by resampling cases, as described above. **(1)** In Table 1 below, we show the results of the cross-validation estimate of Model 1's prediction error and bootstrap analysis of its bias. Specifically, the cross-validation estimate of Model 1's prediction error has a mean of 75,269,069 and a standard deviation of 48,046,478. Although we cannot conclude anything useful from the mean of the prediction error, comparing the mean and the standard deviation of the prediction error, we observe that the standard deviation is more than one half of the mean, and thus we can conclude that the mean of the prediction error fluctuates a lot. This implies that the accuracy and reliability of Model 1 fluctuate a lot. On the other hand, if we look at the bias in Model 1's estimates of pcgmp for cities of the size of Pittsburgh, we can observe that the estimation bias is 1,431.601. Comparing this to the true value of Pittsburgh's pcgmp, which is 38,350, the percentage error is only about 3.7%. Thus, we can conclude that the estimation bias of pcgmp for cities of the size of Pittsburgh is relatively small. Combining the above findings, we can conclude that: although Model 1 can predict pcgmp for cities of the size of Pittsburgh fairly well, we cannot generalize this to other city sizes. Also, recall the fact that the linear model in Model 1 is based on the log transformation of the power-law model; and by Jensen’s inequality, the estimation will be biased. Thus, in general, Model 1's prediction error fluctuates a lot, suggesting that Model 1 can be unreliable in predicting pcgmp, and thus not suitable for predicting pcgmp. 
+
++-------------------------------------------+----------------+
+|                                           | Model 1        |
++===========================================+================+
+| CV Prediction Error (Mean)                | 75,269,069     |
+|                                           |                |
++-------------------------------------------+----------------+
+| CV Prediction Error (Standard Deviation)  | 48,046,478     |
+|                                           |                |
++-------------------------------------------+----------------+
+| Bias (city size of Pittsburgh)            | 1,431.601      |
+|                                           |                |
++-------------------------------------------+----------------+
+
+*Table 1: cross-validation estimate of Model 1's prediction error and bootstrap analysis of its bias*
+
+```{r}
+set.seed(100)
+
+err_vec_2 = rep(NA, 10)
+samp = sample(rep(1:10, length.out = nrow(gmp_df)), replace = FALSE)
+
+for (k in 1:10) {
+   testd = gmp_df[samp == k, ]
+   traind = gmp_df[!(samp == k), ]
+   
+   bws_2_temp = apply(traind[ ,c(5,6,7,8)], 2, sd) / (nrow(traind))^(0.2) 
+   model_2_tmp = npreg(log(pcgmp)~finance+prof.tech+ict+management, data=traind, 
+                bws=bws_2_temp, residuals=TRUE)
+   
+   pre_log_Y = predict(model_2_tmp, newdata=testd)
+   pre_Y = exp(pre_log_Y)
+   
+   err_vec_2[k] = mean((pre_Y - testd$pcgmp)^2)
+}
+
+cv_err_2_mean = mean(err_vec_2)
+cv_err_2_sd = sd(err_vec_2)
+```
+
+Next, to determine if Model 1 or Model 2 predicts pcgmp better, we perform 10-fold cross-validation to estimate the prediction error of Model 1 and Model 2 and compare them. **(2)** In Table 2 below, we show the results of the cross-validation estimate of Model 1's and Model 2’s prediction error. Specifically, the cross-validation estimate of Model 1's prediction error has mean 75,269,069, and standard deviation 48,046,478; and the cross-validation estimate of Model 2’s prediction error has mean 59,056,753, and standard deviation 22,509,347. Comparing the above results, we can observe that the prediction error of Model 2 has a smaller mean and a smaller standard deviation. This suggests that compared to Model 1, Model 2 is more accurate and more stable. 
+
++-------------------------------------------+----------------+----------------+
+|                                           | Model 1        | Model 2        |
++===========================================+================+================+
+| CV Prediction Error (Mean)                | 75,269,069     | 59,056,753     |
+|                                           |                |                |
++-------------------------------------------+----------------+----------------+
+| CV Prediction Error (Standard Deviation)  | 48,046,478     | 22,509,347     |
+|                                           |                |                |
++-------------------------------------------+----------------+----------------+
+
+*Table 2: cross-validation estimate of Model 1's and Model 2's prediction error*
+
+```{r}
+set.seed(100)
+
+n = nrow(gmp_df)
+
+scailing_est = rep(NA, 1000)
+
+for (B in 1:1000) {
+   boot_idx = sample(n, size=n, replace=TRUE)
+   boot_df = gmp_df[boot_idx, ]
+   
+   b_bws_2_temp = apply(boot_df[ ,c(5,6,7,8)], 2, sd) / (nrow(boot_df))^(0.2) 
+   b_model_2_tmp = npreg(log(pcgmp)~finance+prof.tech+ict+management, data=boot_df, 
+                bws=b_bws_2_temp, residuals=TRUE)
+   
+   b_model_3_tmp = lm(residuals(b_model_2_tmp)~log(pop), data=boot_df)
+   scailing_est[B] = coefficients(b_model_3_tmp)[2]
+}
+
+scailing_orig = coefficients(model_3)[2]
+qs = quantile(scailing_est, c(0.025,0.975))
+scaling_CI_lower = 2*scailing_orig-qs[2]
+scaling_CI_upper = 2*scailing_orig-qs[1]
+scaling_CI = c(scaling_CI_lower,scaling_CI_upper)
+```
+
+Finally, to evaluate whether population size matters after the economic variables are accounted for, we aim to construct a confidence interval for the scaling exponent. With this in mind, we perform a (nonparametric) bootstrapping by resampling cases. **(3)** First, we resample data from the empirical distribution of the original dataset, and re-fit Model 2 using the resampled data. Second, we re-fit Model 3 to the residuals in the re-fitted Model 2 and record the scaling exponent. We repeat the above two steps 1000 times to account for uncertainty in both Model 2 and Model 3. Using the scaling exponents recorded during each iteration of the bootstrap, we can construct a confidence interval for the scaling exponent. In table 3 below, we show the results of the bootstrap estimate of the confidence interval for the scaling exponent. Specifically, the 95% confidence interval for the scaling exponent is (-0.0413,-0.0059). **(4)** Since the 95% confidence interval for the scaling exponent does not include zero, there is enough evidence to conclude that the scaling exponent is different than zero after the economic variables have been accounted for. Therefore, we can conclude that the relationship between population and the residuals in Model 2 is still statistically significant, and thus we should still incorporate population as one of our predictor variables. 
+
++---------------------------------+----------------+----------------+
+|                                 | Lower Bound    | Upper Bound    |
++=================================+================+================+
+| Bootstrap Result                | -0.0413        | -0.0059        |
+|                                 |                |                |
++---------------------------------+----------------+----------------+
+
+*Table 3: bootstrap estimate of 95% confidence interval of the scaling exponent, after the economic variables have been accounted for*
+
+
+# Conclusions
+
+**(1)** In this study, we first fit a log-transformed power-law-scaling model (Model 1) to the data. By calculating the cross-validation prediction error of Model 1, we examine how well Model 1 can predict pcgmp. Based on the cross-validation results, we conclude that Model 1 is unreliable and unstable, and thus not suitable for predicting pcgmp. Second, we fit a nonparametric model to predict log(pcgmp) from the other economic variables (finance, prof.tech, ict, and management), which we refer to as Model 2 in the previous part. Using cross-validation, we compare the estimate of Model 1's and Model 2’s prediction error and conclude that Model 2 is more accurate and more stable than Model 1. Lastly, we fit a linear model to the residuals of the economic model (Model 2), using log(population), which we refer to as Model 3 in the previous part. Applying bootstrap to Model 3, we construct a 95% confidence interval for the scaling exponent. Based on the confidence interval, we conclude that the relationship between population and the residuals in Model 2 is still statistically significant. This suggests that the economic variables are not sufficient to explain the data, and thus population should be included as one of the predictors. In conclusion, although we are not able to reject the urban hierarchy hypothesis directly, by showing that there is still a relationship with population after accounting for the economic variables, we can indirectly prove that the urban hierarchy model does not hold. 
+
+Since the urban hierarchy hypothesis does not hold, our client can not guarantee that moving its headquarters to the city will improve its economy, so it is unknown if the city will give them huge tax breaks to convince them to move there. Thus, if the urban hierarchy
+hypothesis is their only argument, our client should not move its headquarters to a large city. 
+
+**(2)** There are still some limitations in our study. First, the urban hierarchy model only suggests that GMP increases with more high-value businesses, but it does not provide a specific formula for that increase. As a result, we can only rely on the power-law-scaling model to check the urban hierarchy hypothesis indirectly. This method would be inherently biased, and our result would be more accurate if we have a formula for the urban hierarchy model. Second, the assumption that all predictor-response pairs are independent and identically distributed is left unchecked, yet this assumption is the basis for most of our analysis. However, this assumption is inherently hard to achieve, because different areas have different geographic or cultural advantages, which can all positively contribute to pcgmp. Lastly, if we were interested in predicting the pcgmp of each city, some crucial variables are omitted (and thus imposing bias), such as compulsory education, population below the poverty line, or youth unemployment. If our client wants to make predictions for cities not present in the data, it is important that the city size or the economic factors do not exceed the range of predictors presented in this data set, so that we can avoid extrapolation. I would suggest our client not to rely on our findings to make accurate predictions, because our dataset is limited in size and number of explanatory variables. 
