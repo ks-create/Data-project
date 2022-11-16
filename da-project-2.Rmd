@@ -1,0 +1,249 @@
+---
+title: "36-402 DA Exam 2"
+author: "Kan Sun (kansun)"
+date: "April 29, 2022"
+output: pdf_document
+linestretch: 1.241
+fontsize: 12pt
+fontfamily: mathpazo
+---
+
+
+```{r setup, include = FALSE}
+# By default, do not include R source code in the PDF. We do not want to see
+# code, only your text and figures.
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+suppressMessages(library(mgcv))
+suppressMessages(library(dplyr))
+suppressMessages(library(np))
+suppressMessages(library(GGally))
+suppressMessages(library(ggplot2))
+suppressMessages(library(gt))
+suppressMessages(library(tidyverse))
+suppressMessages(library(glue))
+```
+
+# Introduction
+
+Our client is the United States Small Business Administration (SBA), an agency of the US federal government intended to help small businesses, and hence create jobs and boost the economy. Since the SBA runs various programs to encourage businesses to apply for their loans, they are interested in knowing how to target those programs to the types of businesses most likely to create jobs. **(1)** Given the data on 16,245 SBA loans granted to businesses in Pennsylvania between 1995 and 2014, we aim to help the SBA in determining how they can create more jobs with less money, by studying their loan data. Specifically, we want to answer the following two questions. First, we want to explore if the relationship between jobs created and dollars loaned is linear, which will indirectly help the SBA in knowing if there are diminishing returns in the number of dollars loaned. Second, we want to explore what kinds of businesses can create the most jobs per dollar loaned, which will help the SBA make more informed decisions when choosing which types of businesses to target their programs. 
+
+Our analysis leads to the conclusion that the relationship between jobs created and dollars loaned is not linear, and there may be diminishing returns in job creation as the loan amount increases. Additionally, we find that ArtsRecreation, Manufacturing, ProfServices, Construction, RetailTrade, Other, TransportationWarehousing, Education, WholesaleTrade, Information, FinanceInsurance, Utilities, and Agriculture have the lower rate of jobs created among all businesses in the given industries. Furthermore, we also find that new business creates significantly more jobs per dollar loaned than existing business, and franchise business creates significantly more jobs per dollar loaned than independent business. 
+
+
+```{r}
+df = read.csv("pa-sba-loans.csv")
+sba_df = df %>% dplyr::select(CreateJob, DisbursementGross, UrbanRural, 
+                              NewBusiness, shortdesc, Franchise)
+sba_df = na.omit(sba_df)
+```
+
+
+# Exploratory Data Analysis
+
+**(1)** Given the research questions and objectives, we define 6 key variables. Specifically, our response variable is CreateJob, which is the number of jobs the business expects to create using the loan money. Our quantitative predictor variable is DisbursementGross, which is the total amount of money loaned. The other four categorical predictor variables include UrbanRural, NewBusiness, Franchise, and shortdesc, which indicates if the business is in an urban or rural area, new or already existing, a franchise or independent, and the industry category the business is in. 
+
+We start by exploring each variable individually. CreateJob is our key response variable. Based on the histogram and the boxplot of CreateJob (figure not shown), we can observe that the majority of CreateJob is gathered around 0, and CreateJob is heavily skewed right and with more than 10 outliers. We then continue to explore the distribution of the predictor variables: DisbursementGross, UrbanRural, NewBusiness, Franchise, and shortdesc. For DisbursementGross, based on its histogram and boxplot (figure not shown), we observe that approximately half of DisbursementGross takes a value below 50,000, while the maximum value of DisbursementGross reaches 7,699,233. Similar to CreateJob, DisbursementGross is also heavily skewed right. For indicator variables UrbanRural, NewBusiness, Franchise, and shortdesc, based on the bar plot of each variable (figure not shown), we observe that: the majority of business is urban, already existed, and independent. Also, among all 19 industry categories of business, we observe that the top 3 industry categories are retail trade, professional services, and other services, which together account for over 40% of our data. 
+
+**(2)** Additionally, we want to further explore the distribution of CreateJob, which is our response variable. Recall that CreateJob indicates the number of jobs the business expects to create, which all takes non-negative integer values and represents the notion of count. With this in mind, Poisson distribution is a good place to start. To better test out this idea, I compared the distribution of CreateJob with the Poisson distribution whose mean is estimated from CreateJob alone. Specifically, I randomly sampled from a Poisson distribution with the same mean as CreateJob and of the same size as CreateJob. As shown in Figure 1, we can observe that the two distribution is very similar. Specifically, they both have a peak near zero, but CreateJob has a slightly heavier right tail compared to the simulated Poisson distribution. Thus, it is reasonable to conclude that the CreateJob approximately follows a Poisson distribution. This is crucial to our analysis as it helps determine which family to use when fitting a GLM or GAM model in the following parts. 
+
+
+```{r, fig.width=7, fig.height=4, fig.cap="Distribution of CreateJob and Simulated Poisson Distribution"}
+set.seed(100)
+
+pois_est = rpois(length(sba_df$CreateJob), mean(sba_df$CreateJob))
+
+par(mfrow = c(1,2))
+hist(sba_df$CreateJob, breaks = seq(from=0, to=320, by=10), 
+     main="Distribution of CreateJob", xlab="CreateJob")
+hist(pois_est, breaks = seq(from=0, to=320, by=10), 
+     main="Simulated Poisson Distribution", xlab="Simulated Poisson Value")
+```
+
+   
+**(3)** Next, we want to explore the possible relationship between predictors and the response. In order to visualize the relationship between CreateJob and shortdesc, which contains 19 industry categories of business, I constructed a violin plot of CreateJob conditional on shortdesc (figure not shown). Based on the conditional violin plot, I observe that, across all industry categories, CreateJob appears to have a peek around zero and skewed right. Additionally, I observe that industry categories AdminSupport, Health, Manufacturing, and ProfServices appear to have more outliers of larger values compared to other industry categories. For the remaining 4 predictor variables, we construct a scatterplot matrix of CreateJob and all 4 predictor variables as shown in Figure 2. For the quantitative predictor variable DisbursementGross, although it is hard to tell any relationship between CreateJob and DisbursementGross, the correlation value indicates that there is a positive relationship between CreateJob and DisbursementGross. For the other 3 categorical predictor variables UrbanRural, NewBusiness, and Franchise, CreateJob appears to have a peek around zero and skewed right regardless of the value of each indicator variable. Nevertheless, urban business appears to have more outliers of larger values than rural business, new business appears to have more outliers of larger values than existing business, and independent business appears to have more outliers of larger values than franchise business. 
+
+
+```{r, warning=FALSE, message=FALSE, fig.width=6, fig.height=4, fig.cap="Scatterplot matrix of predictor and response variables"}
+tmp = df %>% dplyr::select(CreateJob, DisbursementGross, UrbanRural, 
+                              NewBusiness, Franchise)
+tmp = na.omit(tmp)
+ggpairs(tmp)
+```
+
+
+**(4)** During our EDA, I find it is interesting that the number of MiningGas, Utilities, and PublicAdmin businesses is extremely small compared to the business of other industry categories. In particular, there are only 6 PublicAdmin businesses, accounting for less than 1% of the entire dataset. This inherently causes some problems in our following analysis. For example, since the number of PublicAdmin is extremely small, when constructing the confidence interval of the coefficient of PublicAdmin, it could suffer from high variance and thus the range of the confidence interval can be extremely large. 
+
+
+# Modeling & Diagnostics
+
+To begin with, in order to investigate the relationship between business type and jobs per dollar, we fit a linear model to relate the number of jobs the business expects to create to the loan amount and business types. Recall that our response variable CreateJob appears to follow a Poisson distribution, which indicates a violation of the normality assumption in linear model. **(1)** With this in mind, I choose to fit a GLM model as it loosens the normality assumption and allows for a variety of other distributions from the exponential family. Specifically, I will fit the following GLM model, with a Poisson response distribution, to our data: 
+$$\text{CreateJob} \sim \text{DisbursementGross + }$$
+$$\text{UrbanRural + NewBusiness + shortdesc +Franchise} \hspace{1cm}  \textbf{(Model 1)}$$
+and we will refer to this as Model 1. 
+
+```{r}
+model_1 = glm(CreateJob ~ DisbursementGross + 
+                 UrbanRural + NewBusiness + shortdesc + Franchise, 
+              family=poisson, data=sba_df)
+```
+
+   
+However, it is still unclear whether the relationship between jobs and loan amount is linear. **(2)** In order to better address this issue, I fit a GAM model to our data. Specifically, I allow DisbursementGross to be nonlinear and let the computer to choose the smoothing parameter for DisbursementGross, up to a maxium 5 degree of freedom, while there is no need to change the degree of freedom other 4 categorical covariates (UrbanRural, NewBusiness, shortdesc, and Franchise). To put this into formula, I will fit the following GAM model to our data:
+$$\text{CreateJob} \sim \text{s(DisbursementGross, k = 5 + 1) +} $$ 
+$$\text{UrbanRural + NewBusiness + shortdesc + Franchise} \hspace{1cm}  \textbf{(Model 2)}$$
+and we will refer to this as Model 2. 
+
+   
+```{r}
+model_2 = gam(CreateJob ~ s(DisbursementGross, k = 5 + 1) + 
+                 UrbanRural + NewBusiness + shortdesc + Franchise,
+              family=poisson, data=sba_df)
+```
+
+   
+**(3)** After fitting Model 1 and Model 2, we are then interested in if there are any apparent model violation assumptions, as well as their possible implications. Based on Model 1’s fitted value versus their corresponding residuals plot in Figure 3, we can observe that the residuals approximately have mean zero, but appear to have a larger variance when fitted values are small, and have a smaller variance when the fitted values are large. Interestingly, the residual plot follows the shape of multiple (almost linear with a slight concave curve) lines, which is expected since our response variable CreateJob is discrete. Based on Model 2’s fitted value versus their corresponding residuals plot in Figure 3, we observe a similar pattern as in Model 1. Specifically, we observe that the residuals approximately have mean zero, but appear to have a larger variance when fitted values are small, and have a smaller variance when the fitted values are large. Similarly, the residual plot follows the shape of multiple (almost linear with a slight concave curve) lines, which is expected since our response variable CreateJob is discrete. Moreover, based on the normal qq-plot of Model 1 and Model 2 (figure not shown), we again observe a similar pattern. For both models, we observe that the upper end of the Q-Q plot deviates from the straight line and the lower and follows a straight line, suggesting some potential right-skewness. In summary, although our observation of the residuals plots suggests the constant variance and normality assumption are violated under the setting of linear regression, our observation is in fact expected since both Model 1 and Model 2 are fitted using a Poisson response distribution. With this in mind, when performing bootstrap with Model 1 or Model 2, we should avoid using fully parametric bootstrap or bootstrapping by resampling residuals, because both methods require residuals to be independent of the predictors. Instead, we should use bootstrap by resampling cases. 
+
+   
+```{r, fig.width=6, fig.height=4, fig.cap="Diagnostic Plots of Model 1 and Model 2"}
+par(mfrow=c(1,2))
+
+# plot(model_1, which=c(1), main="Model 1: Residuals vs Fitted", pch=".")
+plot(fitted(model_1), residuals(model_1), main = "Model 1: Residuals vs Fitted", 
+     xlab = "Fitted Values", ylab = "Residuals", pch=".")
+abline(h=0)
+plot(fitted(model_2), residuals(model_2), main = "Model 2: Residuals vs Fitted", 
+     xlab = "Fitted Values", ylab = "Residuals", pch=".")
+abline(h=0)
+```
+
+   
+To test whether the nonlinear term is necessary, we can perform a deviance test (ANOVA using chi-square test statistic) to compare Model 1 to Model 2. By this approach, we hope to investigate if adding the nonlinear term significantly improves the original linear model. However, the deviance test does not take into account that the smoothing parameter in one of the models being compared is chosen by mgcv, which could have selected different smoothing parameters with a different sample of data. In this part, I decide to perform a bootstrap analysis to determine the appropriate distribution of the deviance test statistic for comparing Models 1 and 2. **(4)** Since Model 1 is assumed to be correct under the null hypothesis, I decide to use fully parametric bootstrap. Specifically, for each predictor, we draw the response value from a Poisson distribution, with lambda estimated from the fitted value of Model 1. Then we re-fit Model 1 and Model 2 to the newly sampled data. We want to repeat the above process 100 times, and record the chi-square test statistic obtained from the deviance test comparing Model 1 to Model 2 in each iteration. By this approach, we hope to improve our estimation of the chi-square distribution of the deviance test statistic under the null hypothesis, and thus have a better estimation of the p-value. 
+   
+```{r}
+dev.test = anova(model_1, model_2, test = "Chisq")
+```
+
+```{r, cache=TRUE}
+set.seed(100)
+
+B = 100
+n = nrow(sba_df)
+lambda_est = mean(fitted.values(model_1))
+boot_df = sba_df
+
+result_vec = rep(NA, B)
+
+for (b in 1:B) {
+   y_est = rpois(n, lambda_est)
+   boot_df$CreateJob = y_est
+   boot_model_1 = glm(CreateJob ~ DisbursementGross + UrbanRural +
+                        NewBusiness + shortdesc + Franchise,
+                      family=poisson, data=boot_df)
+   boot_model_2 = gam(CreateJob ~ s(DisbursementGross, k = 5 + 1) +
+                 UrbanRural + NewBusiness + shortdesc + Franchise,
+                 family=poisson, data=boot_df)
+   result_vec[b] = anova(boot_model_1, boot_model_2, test = "Chisq")$Deviance[2]
+}
+```
+
+```{r}
+boot_pvalue = mean(result_vec>dev.test$Deviance[2])
+```
+
+Furthermore, to explore if the business in some specific industry categories creates
+more jobs per dollar loaned, we can calculate confidence intervals for the coefficients of variables relating to the kinds of businesses (UrbanRural, NewBusiness, Franchise, and shortdesc). Recall that the smoothing parameter in one of the models being compared is chosen by mgcv, which could have selected different smoothing parameters with a different sample of data, so we cannot directly use the result from the model summary. Recall that in model diagnostics, we conclude that Model 1 and 2 violate the assumptions of residuals having a constant variance, which implies that the residuals seem to depend on the predictors. **(5)** With this in mind, I decide to perform bootstrap by resampling cases. Before we start, we will need to determine if Model 1 or Model 2 is best for analyzing the data, and approach using the better model. In particular, we want to resample data pairs (CreateJob, DisbursementGross, UrbanRural, NewBusiness, shortdesc, Franchise) from the empirical distribution of the original dataset, and we want to make sure that the resampled data has the same size as the original dataset to avoid uncertainty due to sample size. Then we re-fit the better model to the newly sampled data. We want to repeat the above process 100 times and record the coefficients of variables relating to the kinds of businesses in each iteration. By this approach, we hope to improve our estimation of the distribution of coefficients of variables relating to the kinds of businesses, and thus better determine the confidence interval of the coefficients of variables relating to the kinds of businesses. 
+
+```{r, cache=TRUE}
+set.seed(100)
+
+B = 100
+n = nrow(sba_df)
+
+result_mat = c()
+
+for (b in 1:B) {
+   boot_idx = sample(n, size=n, replace=TRUE)
+   boot_df = sba_df[boot_idx, ]
+   boot_model_2 = gam(CreateJob ~ s(DisbursementGross, k = 5 + 1) +
+                 UrbanRural + NewBusiness + shortdesc + Franchise,
+                 family=poisson, data=boot_df)
+   
+   result_mat = cbind(result_mat, as.numeric(coef(boot_model_2)[2:22]))
+}
+```
+
+```{r}
+orig_coeff = coef(model_2)[2:22]
+q = apply(result_mat, 1, quantile, probs = c(0.975, 0.025))
+upper = exp(2*orig_coeff - q[2,])
+lower = exp(2*orig_coeff - q[1,])
+ci = cbind(lower, upper)
+```
+
+# Results
+
+To evaluate if the nonlinear term is necessary, I performed a parametric bootstrap to estimate the chi-square distribution of the deviance test statistic under the null hypothesis as describe in the above section. **(1)** Specifically, we identify our null and althernative hypothesis as: 
+$$H_0: \text{Model 1 is approximately unbiased. }$$
+$$H_a: \text{Model 1 is not unbiased and that at least some terms are nonlinear. }$$
+In our case, since DisbursementGross is the only nonlinear term in Model 2, we can also intepret the althernative hypothesis as:
+$$H_a: \text{Model 1 is not unbiased and DisbursementGross nonlinear. }$$
+Based on the distribution of the deviance test statistic in our bootstrap, we calculate and find out that our bootstrap p-value is 0. Recall that we only repeat the bootstrap for 100 iterations to make our code run within a reasonable amount of time. Thus, we can conclude that the p-value is less than the 0.05 threshold and we reject the null hypothesis. This means that there is enough evidence to suggest that Model 1 is biased and DisbursementGross being nonlinear is necessary. Thus, Model 2 is better for analyzing the data, and we will use Model 2 for the remaining part of our analysis. Furthermore, to better visualize the shape of the relationship between the loan amount and job creation, I plot the partial response function of DisbursementGross from Model 2 as shown in Figure 4. In particular, we can observe that the relationship between the loan amount and job creation is nonlinear. The partial response function appears to sharply increase from loan amount of 0 to 1,000,000, with a dip around loan amount of 2,000,000, and gradually increase after that. In addition, we also observe that the partial response function starts to become stable and gradually decreases after 6,000,000, suggesting that there may be diminishing returns in job creation as the loan amount increases. 
+
+
+```{r, fig.width=6, fig.height=4, fig.cap="Relationship between Loan Amount and Job Creation"}
+plot(model_2)
+```
+
+
+Next, to investigate if some industries are associated with higher job creation rates than others, we calculated the 95% confidence intervals for the association between industry (shortdesc) and jobs created, controlling for the other variables. **(2)** The result is displayed in the table below.   
+
+```{r}
+ci_df = as.data.frame(ci)
+ci_df$'industry category' = rownames(ci)
+
+ci_df = ci_df[, c(3,1,2)]
+options("scipen"=100, "digits"=2)
+ci_df$lower = round(ci_df$lower, digits = 2)
+ci_df$upper = round(ci_df$upper, digits = 2)
+
+ci_df_1 = ci_df[3:20, ]
+ci_df_2 = ci_df[c(1,2,21), ]
+
+colnames(ci_df_1) = c('industry category', 'lower(2.5%)', 'upper(97.5%)')
+colnames(ci_df_2) = c('kinds of business', 'lower(2.5%)', 'upper(97.5%)')
+
+ci_df_1 = ci_df_1[order(ci_df_1$lower, decreasing = TRUE), ]
+ci_df_2 = ci_df_2[order(ci_df_2$lower, decreasing = TRUE), ]
+
+ci_df_1 %>% gt() %>%
+  tab_header(
+    title = "95% Confidence Intervals of Coefficients (Exponential Transformed)",
+  )
+```
+
+
+**(3)** Now we will focus on the 95% confidence intervals for the association between industry (shortdesc) and jobs created. First, note that all industry categories displayed above are being compared to AccommodationFood, which is our baseline value. The coefficient represents how many times larger/smaller the number of jobs created by a business in the given industry is when compared to AccommodationFood, controlling for the other variables. Specifically, none of the industry categories creates significantly more jobs per dollar loaned than AccommodationFood, as all of the confidence intervals either include 1 or are below 1. On the other hand, ArtsRecreation, Manufacturing, ProfServices, Construction, RetailTrade, Other, TransportationWarehousing, Education, WholesaleTrade, Information, FinanceInsurance, Utilities, and Agriculture creates significantly fewer jobs per dollar loaned than AccommodationFood, as their confidence intervals are all below 1. Moreover, among all industry categories, except our baseline AccommodationFood, AdminSupport, Health, and MiningGas have relatively higher rates, while Agriculture has the lowest rate. And interestingly, the range of the confidence interval of PublicAdmin is extremely large, which suggests that the rate of PublicAdmin may require a some more analysis. 
+
+Additionally, I also calculated the 95% confidence intervals for the association between jobs created and UrbanRural, new business, and Franchise, controlling for the other variables. The result is displayed in the table below. 
+
+```{r}
+ci_df_2 %>% gt() %>%
+  tab_header(
+    title = "95% Confidence Intervals of Coefficients (Exponential Transformed)",
+  )
+```
+
+From the table above, we can observe that the confident intervals of NewBusinessNew and FranchiseY are both above 1. This suggest that new business creates significantly more jobs per dollar loaned than existing business, and franchise business creates significantly more jobs per dollar loaned than independent business. 
+
+# Conclusions
+
+**(1)** In this study, we aim to relate the number of jobs the business expects to create to the loan amount and business types so that the SBA can make more informed decisions when choosing which types of businesses to target their program, and thus boost the economy. First, we fit a GLM model and a GAM model to our data. By performing the bootstrap and deviance test, we conclude that the relationship between jobs created and loan amount is nonlinear. Additionally, from the partial response function demonstrating the relationship between Loan Amount and Job Creation, we conclude that there may be diminishing returns in job creation as the loan amount increases. Second, we then calculate the 95% confidence intervals for the association between jobs created and kinds of businesses (industry, urban/rural, franchise/independent, new/existing). By studying the confidence intervals and using AccommodationFood as our industry baseline, we can separate the industry categories into two groups. Specifically, ArtsRecreation, Manufacturing, ProfServices, Construction, RetailTrade, Other, TransportationWarehousing, Education, WholesaleTrade, Information, FinanceInsurance, Utilities, and Agriculture creates significantly fewer jobs per dollar loaned than AccommodationFood. In particular, Agriculture has the lowest rate. And the remaining industry categories, except PublicAdmin, do not create significantly more or fewer jobs per dollar loaned than AccommodationFood. Note that we refrain from making conclusions about the confidence interval of PublicAdmin as its lower bound is extremely low and the upper bound is extremely high, which can potentially be explained by that there is only 6 PublicAdmin business in our dataset, resulting in the estimated rate to be unreliable. Furthermore, based the confidence intervals of UrbanRural, NewBusiness, and Franchise, we conclude that: new business creates significantly more jobs per dollar loaned than existing business; franchise business creates significantly more jobs per dollar loaned than independent business. 
+
+In short, I decide to make two suggestions for the SBA. First, the relationship between jobs created and dollars loaned is not linear, and there may be diminishing returns in job creation as the loan amount increases. So the SBA should be careful when guaranteeing a loan of a larger amount, as it does not necessarily lead to more created jobs. Second, the SBA should target their load program to new, and franchise businesses because they tend to create more jobs per dollar loaned. For the industry categories of business, the SBA should target business in ArtsRecreation, Manufacturing, ProfServices, Construction, RetailTrade, Other, TransportationWarehousing, Education, WholesaleTrade, Information, FinanceInsurance, Utilities, and Agriculture less. Additionally, the SBA should be more careful when targeting their program to PublicAdmin business, as the number of jobs per dollar loaned is highly unstable for PublicAdmin business. 
+   
+**(2)** However, there are still some limitations in our study. We did not take the Default variable into consideration. The Default variable represents if the company defaulted on the loan, which is some information that the SBA is not aware of when receiving the loan application. Since this information is not known in advance, we decide not to include this as a predictor variable when helping the SBA to decide the types of businesses to target their program. Yet, Default is in fact an important variable. If the business fails to pay the loan back, not only the SBA will have to pay the bank, but also the created jobs are likely to disappear. Second, since our data only includes observation, we should be aware that the relationships concluded from our analysis are only associative relationships, instead of casual relationships. 
+
